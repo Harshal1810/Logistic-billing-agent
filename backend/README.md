@@ -55,6 +55,8 @@ To preload freight bills from seed as well:
 python -m scripts.load_seed --include-freight-bills
 ```
 
+Why this default: preloading all freight bills can trigger duplicate/cumulative rules immediately (because related bills already exist), which makes first-run testing noisy. Keeping freight bills user-ingested and using reset gives cleaner, controlled demos.
+
 Run tests:
 ```bash
 python -m scripts.test_langgraph_workflow
