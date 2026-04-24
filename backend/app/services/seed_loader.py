@@ -40,7 +40,7 @@ def normalize_payload_dates(payload: dict) -> dict:
     return normalized
 
 
-def load_seed_data(file_path: str) -> None:
+def load_seed_data(file_path: str, include_freight_bills: bool = False) -> None:
     path = Path(file_path)
     data = json.loads(path.read_text(encoding="utf-8"))
 
@@ -119,33 +119,39 @@ def load_seed_data(file_path: str) -> None:
                 )
             )
 
-        # Freight bills
-        for row in data.get("freight_bills", []):
-            db.merge(
-                FreightBill(
-                    id=row["id"],
-                    carrier_id=row.get("carrier_id"),
-                    carrier_name_raw=row["carrier_name"],
-                    bill_number=row["bill_number"],
-                    bill_date=parse_iso_date(row["bill_date"]),
-                    shipment_reference=row.get("shipment_reference"),
-                    lane=row["lane"],
-                    billed_weight_kg=row["billed_weight_kg"],
-                    rate_per_kg=row.get("rate_per_kg"),
-                    billing_unit=row.get("billing_unit"),
-                    base_charge=row["base_charge"],
-                    fuel_surcharge=row["fuel_surcharge"],
-                    gst_amount=row["gst_amount"],
-                    total_amount=row["total_amount"],
-                    raw_payload=normalize_payload_dates(row),
-                    processing_status="ingested",
-                    current_decision=None,
-                    confidence_score=None,
+        if include_freight_bills:
+            # Freight bills (optional to keep workflow ingestion user-driven by default)
+            for row in data.get("freight_bills", []):
+                db.merge(
+                    FreightBill(
+                        id=row["id"],
+                        carrier_id=row.get("carrier_id"),
+                        carrier_name_raw=row["carrier_name"],
+                        bill_number=row["bill_number"],
+                        bill_date=parse_iso_date(row["bill_date"]),
+                        shipment_reference=row.get("shipment_reference"),
+                        lane=row["lane"],
+                        billed_weight_kg=row["billed_weight_kg"],
+                        rate_per_kg=row.get("rate_per_kg"),
+                        billing_unit=row.get("billing_unit"),
+                        base_charge=row["base_charge"],
+                        fuel_surcharge=row["fuel_surcharge"],
+                        gst_amount=row["gst_amount"],
+                        total_amount=row["total_amount"],
+                        raw_payload=normalize_payload_dates(row),
+                        processing_status="ingested",
+                        current_decision=None,
+                        confidence_score=None,
+                    )
                 )
-            )
 
         db.commit()
-        print("Seed data loaded successfully into Postgres.")
+        msg = "Seed data loaded successfully into Postgres."
+        if include_freight_bills:
+            msg += " (including freight_bills)"
+        else:
+            msg += " (excluding freight_bills; ingest via POST /freight-bills)"
+        print(msg)
     except Exception:
         db.rollback()
         raise

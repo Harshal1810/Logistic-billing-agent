@@ -17,6 +17,18 @@ def get_freight_bill_by_id(db: Session, freight_bill_id: str) -> FreightBill | N
     )
 
 
+def list_freight_bills(
+    db: Session,
+    limit: int = 100,
+) -> list[FreightBill]:
+    return (
+        db.query(FreightBill)
+        .order_by(FreightBill.updated_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+
 def delete_candidate_matches(
     db: Session,
     freight_bill_id: str,

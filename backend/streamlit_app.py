@@ -269,6 +269,7 @@ def _render_bill_explorer(base_url: str, timeout: float) -> None:
 
 def _render_ingest(base_url: str, timeout: float) -> None:
     st.header("Ingest Freight Bill")
+    st.caption("Freight bills are meant to be ingested through this UI/API; seed loading can skip freight bills.")
     seed_rows = _load_seed_freight_bills()
     seed_map = {row.get("id", f"row-{idx}"): row for idx, row in enumerate(seed_rows)}
 
@@ -310,6 +311,69 @@ def _render_ingest(base_url: str, timeout: float) -> None:
         if bill_id:
             st.session_state["selected_bill_id"] = bill_id
             st.session_state["selected_bill_detail"] = response
+
+
+def _render_current_bills(base_url: str, timeout: float) -> None:
+    st.header("Currently Ingested Bills")
+    with st.expander("Reset freight-bill state (Postgres + Neo4j)"):
+        st.warning("This deletes all freight bills and related workflow outputs.")
+        confirm_reset = st.checkbox("I understand this will delete all ingested freight bills")
+        if st.button("Reset now", type="secondary"):
+            if not confirm_reset:
+                st.error("Please confirm before reset.")
+            else:
+                ok, payload = _api_post(
+                    base_url,
+                    "/admin/reset-freight-bills",
+                    {"confirm": True},
+                    timeout,
+                )
+                if not ok:
+                    st.error(payload)
+                else:
+                    st.success(payload.get("message", "Reset completed"))
+                    st.json(payload, expanded=False)
+                    st.session_state.pop("selected_bill_detail", None)
+                    st.session_state.pop("selected_bill_id", None)
+                    st.session_state["current_bills_payload"] = {"count": 0, "items": []}
+
+    c1, c2 = st.columns([1, 1])
+    limit = c1.number_input("Limit", min_value=1, max_value=500, value=100, step=1)
+    refresh = c2.button("Refresh bills", type="primary")
+
+    if refresh:
+        ok, payload = _api_get(base_url, f"/freight-bills?limit={int(limit)}", timeout)
+        if not ok:
+            st.error(payload)
+            return
+        st.session_state["current_bills_payload"] = payload
+
+    payload = st.session_state.get("current_bills_payload")
+    if not payload:
+        st.info("Load current ingested bills.")
+        return
+
+    items = payload.get("items", [])
+    st.write(f"Found bills: {payload.get('count', len(items))}")
+    if not items:
+        st.info("No freight bills ingested yet.")
+        return
+
+    st.dataframe(items, use_container_width=True)
+
+    bill_ids = [row.get("id") for row in items if row.get("id")]
+    selected_bill_id = st.selectbox("Open bill in explorer", options=[""] + bill_ids)
+    if st.button("Load selected bill"):
+        if not selected_bill_id:
+            st.warning("Pick a bill ID first.")
+            return
+        ok, detail = _api_get(base_url, f"/freight-bills/{selected_bill_id}", timeout)
+        if not ok:
+            st.error(detail)
+            return
+        st.session_state["selected_bill_id"] = selected_bill_id
+        st.session_state["selected_bill_detail"] = detail
+        st.success(f"Loaded {selected_bill_id} in Bill Explorer tab.")
 
 
 def _render_review_queue(base_url: str, timeout: float) -> None:
@@ -404,11 +468,13 @@ def main() -> None:
             else:
                 st.error(payload)
 
-    tab_ingest, tab_bill, tab_queue, tab_graph = st.tabs(
-        ["Ingest", "Bill Explorer", "Review Queue", "Graph"]
+    tab_ingest, tab_current, tab_bill, tab_queue, tab_graph = st.tabs(
+        ["Ingest", "Current Bills", "Bill Explorer", "Review Queue", "Graph"]
     )
     with tab_ingest:
         _render_ingest(base_url, timeout)
+    with tab_current:
+        _render_current_bills(base_url, timeout)
     with tab_bill:
         _render_bill_explorer(base_url, timeout)
     with tab_queue:

@@ -44,9 +44,15 @@ pip install -r requirements.txt
 #Start Docker Desktop
 docker compose up -d
 alembic upgrade head
+# Loads master/reference data only (excludes freight_bills by default)
 python -m scripts.load_seed
 python -m scripts.project_to_neo4j
 uvicorn app.main:app --reload
+```
+
+To preload freight bills from seed as well:
+```bash
+python -m scripts.load_seed --include-freight-bills
 ```
 
 Run tests:
@@ -68,6 +74,8 @@ streamlit run streamlit_app.py
 
 Main tabs:
 - `Ingest`: send `POST /freight-bills` payloads (seed picker + JSON editor + force reprocess).
+- `Current Bills`: call `GET /freight-bills` to list currently ingested bills and open one in explorer.
+  - Includes one-click reset for freight-bill state in Postgres + Neo4j (with confirmation).
 - `Bill Explorer`: fetch `GET /freight-bills/{id}` and inspect overview, candidates, validations, decision, workflow, audit.
 - `Review Queue`: inspect `GET /review-queue` and submit `POST /review/{id}` actions.
 - `Graph`: visualize FreightBill -> Carrier/Contract/Shipment/BOL context plus top candidates.
@@ -95,12 +103,16 @@ GROQ_TIMEOUT_SECONDS=8.0
 ## API endpoints
 - `POST /freight-bills`
   - Ingests a freight bill payload and starts (or re-runs) workflow orchestration.
+- `GET /freight-bills`
+  - Lists currently ingested freight bills with processing/decision/selection state.
 - `GET /freight-bills/{id}`
   - Returns bill data, selected/candidate matches, validations, decision, confidence, workflow state, review task state, and audit summary.
 - `GET /review-queue`
   - Returns pending review tasks with top candidates, validation issues, and suggested decision.
 - `POST /review/{id}`
   - Submits reviewer action (`approve|dispute|modify`) and resumes workflow from persisted state.
+- `POST /admin/reset-freight-bills`
+  - Deletes all ingested freight bills and related workflow outputs in Postgres, and removes `FreightBill` nodes from Neo4j.
 
 ## How the bill is processed
 1. Ingest freight bill into Postgres.

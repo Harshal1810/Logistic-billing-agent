@@ -3,7 +3,7 @@ from decimal import Decimal
 from enum import Enum
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -13,13 +13,18 @@ from app.agent.service import get_workflow_run_for_bill, resume_workflow, start_
 from app.db.postgres import SessionLocal
 from app.models.freight_bill import FreightBill
 from app.repositories.decisions import get_latest_decision
-from app.repositories.freight_bills import get_candidate_matches, get_freight_bill_by_id
+from app.repositories.freight_bills import (
+    get_candidate_matches,
+    get_freight_bill_by_id,
+    list_freight_bills,
+)
 from app.repositories.review_tasks import (
     get_latest_review_task_for_bill,
     get_pending_review_task_for_bill,
     list_pending_review_tasks,
 )
 from app.repositories.validations import get_validation_results
+from app.services.reset_service import reset_freight_bill_state
 
 app = FastAPI()
 
@@ -60,6 +65,37 @@ class FreightBillIngestRequest(BaseModel):
 class ReviewSubmissionRequest(BaseModel):
     reviewer_decision: ReviewDecisionEnum
     notes: str | None = None
+
+
+class ResetFreightBillsRequest(BaseModel):
+    confirm: bool = Field(default=False)
+
+
+class ResetFreightBillsResponse(BaseModel):
+    message: str
+    postgres_deleted_freight_bills: int
+    neo4j_deleted_freight_bills: int
+
+
+class FreightBillListItemResponse(BaseModel):
+    id: str
+    carrier_id: str | None
+    bill_number: str
+    bill_date: str
+    lane: str
+    processing_status: str
+    current_decision: str | None
+    final_resolution: str | None
+    confidence_score: float | None
+    selected_contract_id: str | None
+    selected_shipment_id: str | None
+    selected_bol_id: str | None
+    updated_at: str
+
+
+class FreightBillListResponse(BaseModel):
+    count: int
+    items: list[FreightBillListItemResponse]
 
 
 class FreightBillCoreResponse(BaseModel):
@@ -501,6 +537,59 @@ def health_check() -> dict[str, str]:
     try:
         db.execute(text("SELECT 1"))
         return {"status": "ok", "database": "connected"}
+    finally:
+        db.close()
+
+
+@app.post(
+    "/admin/reset-freight-bills",
+    response_model=ResetFreightBillsResponse,
+    responses={400: {"model": ErrorResponse}},
+)
+def reset_freight_bills(payload: ResetFreightBillsRequest) -> dict[str, Any]:
+    if not payload.confirm:
+        _raise_api_error(400, "confirmation_required", "Set confirm=true to execute reset")
+
+    db = SessionLocal()
+    try:
+        result = reset_freight_bill_state(db)
+        return {
+            "message": "Freight bill state reset in Postgres and Neo4j",
+            **result,
+        }
+    finally:
+        db.close()
+
+
+@app.get(
+    "/freight-bills",
+    response_model=FreightBillListResponse,
+)
+def get_freight_bills(
+    limit: int = Query(default=100, ge=1, le=500),
+) -> dict[str, Any]:
+    db = SessionLocal()
+    try:
+        rows = list_freight_bills(db, limit=limit)
+        items = [
+            {
+                "id": row.id,
+                "carrier_id": row.carrier_id,
+                "bill_number": row.bill_number,
+                "bill_date": _iso(row.bill_date),
+                "lane": row.lane,
+                "processing_status": row.processing_status,
+                "current_decision": row.current_decision,
+                "final_resolution": row.final_resolution,
+                "confidence_score": _as_float(row.confidence_score),
+                "selected_contract_id": row.selected_contract_id,
+                "selected_shipment_id": row.selected_shipment_id,
+                "selected_bol_id": row.selected_bol_id,
+                "updated_at": _iso(row.updated_at),
+            }
+            for row in rows
+        ]
+        return {"count": len(items), "items": items}
     finally:
         db.close()
 
