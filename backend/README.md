@@ -31,6 +31,8 @@ Freight bills often arrive with partial references, overlapping contracts, prici
 - LLM usage is intentionally narrow and optional in this implementation; deterministic services handle contract/date/rate/weight validation, while the workflow architecture leaves room for future name normalization or explanation generation
 
 ## How to run locally
+Recommended Python version: `3.11` (tested with the current dependency set).
+
 ```bash
 cd backend
 python -m venv .venv
@@ -39,6 +41,7 @@ python -m venv .venv
 # macOS/Linux
 source .venv/bin/activate
 pip install -r requirements.txt
+#Start Docker Desktop
 docker compose up -d
 alembic upgrade head
 python -m scripts.load_seed
